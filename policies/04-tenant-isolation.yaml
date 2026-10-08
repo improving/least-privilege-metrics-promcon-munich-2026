@@ -1,0 +1,20 @@
+# prom-label-proxy will force namespace="<tenant>" onto every selector anyway.
+# This policy makes intent explicit: asking for someone else's namespace is a
+# deny with a reason, not a silently empty result.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: tenant-isolation
+spec:
+  evaluation:
+    mode: JSON
+  matchConditions:
+  - name: promql-only
+    expression: "object.kind == 'PromQLQuery'"
+  validations:
+  - expression: >-
+      object.selectors.all(s, s.matchers.all(m,
+        m.name != 'namespace' || (m.type == '=' && m.value == object.tenant)))
+    messageExpression: "'tenant ' + object.tenant + ' may only select namespace=\"' + object.tenant + '\" (no other namespaces, no regex or negative namespace matchers)'"
+  - expression: "object.selectors.all(s, s.matchers.all(m, m.name != 'exported_namespace'))"
+    message: "exported_namespace is a known way around namespace isolation"

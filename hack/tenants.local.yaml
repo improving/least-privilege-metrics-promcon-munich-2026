@@ -1,0 +1,7 @@
+tenants:
+  team-a:
+    static_tokens: ["token-team-a"]
+    samples_per_minute: 5000000
+  team-b:
+    static_tokens: ["token-team-b"]
+    samples_per_minute: 60000

@@ -1,0 +1,17 @@
+# Every selector must name exactly one metric. Blocks {__name__=~".+"}, {job="x"} and
+# other "dump everything" queries that are the first step of any data exfiltration.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: no-metric-enumeration
+spec:
+  evaluation:
+    mode: JSON
+  matchConditions:
+  - name: promql-only
+    expression: "object.kind == 'PromQLQuery'"
+  - name: has-selectors   # /labels and /label/x/values may have no selector at all
+    expression: "size(object.selectors) > 0"
+  validations:
+  - expression: "!object.hasUnnamedSelector"
+    message: "every selector must name a metric explicitly (no {__name__=~...} or bare label selectors)"

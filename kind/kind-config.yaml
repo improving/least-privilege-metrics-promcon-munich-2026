@@ -1,0 +1,6 @@
+# kind >= v0.24: the default CNI (kindnet) enforces NetworkPolicy, which scene 6 relies on.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: promcon
+nodes:
+- role: control-plane

@@ -1,0 +1,30 @@
+# Cost-aware limits per tenant tier. Stateless checks live here; the per-minute
+# budget (stateful) is enforced by the gate's token bucket.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: query-cost-limits
+spec:
+  evaluation:
+    mode: JSON
+  matchConditions:
+  - name: promql-only
+    expression: "object.kind == 'PromQLQuery'"
+  variables:
+  - name: tiers
+    expression: >-
+      {
+        "team-a": {"maxWindow": 86400, "maxLookback": 3600, "maxSubqueries": 1, "maxSamples": 2000000},
+        "team-b": {"maxWindow": 3600,  "maxLookback": 900,  "maxSubqueries": 0, "maxSamples": 50000}
+      }
+  - name: t
+    expression: "object.tenant in variables.tiers ? variables.tiers[object.tenant] : {'maxWindow': 0, 'maxLookback': 0, 'maxSubqueries': 0, 'maxSamples': 0}"
+  validations:
+  - expression: "object.windowSeconds <= variables.t.maxWindow"
+    messageExpression: "'query window ' + string(object.windowSeconds) + 's exceeds tier limit of ' + string(variables.t.maxWindow) + 's'"
+  - expression: "object.maxLookbackSeconds <= variables.t.maxLookback"
+    messageExpression: "'range selector/lookback ' + string(object.maxLookbackSeconds) + 's exceeds tier limit of ' + string(variables.t.maxLookback) + 's'"
+  - expression: "object.subqueries <= variables.t.maxSubqueries"
+    messageExpression: "'subqueries used: ' + string(object.subqueries) + ', tier allows ' + string(variables.t.maxSubqueries)"
+  - expression: "object.estimatedSamples <= variables.t.maxSamples"
+    messageExpression: "'estimated ' + string(object.estimatedSamples) + ' samples exceeds tier limit of ' + string(variables.t.maxSamples)"

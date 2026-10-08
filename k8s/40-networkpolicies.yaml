@@ -1,0 +1,24 @@
+# Applied live in scene 6. Without these, the gate is a suggestion, not a control.
+# Prometheus: only the gate namespace (gate for parse_query, prom-label-proxy for data).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: prometheus-only-from-gate, namespace: monitoring}
+spec:
+  podSelector: {matchLabels: {app: prometheus}}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: promql-gate}}
+    ports: [{port: 9090}]
+---
+# prom-label-proxy trusts the X-Tenant header, so only the gate may reach it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: plp-only-from-gate, namespace: promql-gate}
+spec:
+  podSelector: {matchLabels: {app: prom-label-proxy}}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector: {matchLabels: {app: promql-gate}}
+    ports: [{port: 8080}]

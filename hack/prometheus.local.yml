@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 15s
+  query_log_file: /tmp/lpm/query.log
+scrape_configs:
+- job_name: fake-shop
+  static_configs:
+  - targets: ['localhost:8001']
+    labels: {namespace: team-a}
+  - targets: ['localhost:8002']
+    labels: {namespace: team-b}
+- job_name: fake-ksm   # stands in for kube-state-metrics locally
+  static_configs:
+  - targets: ['localhost:8003']

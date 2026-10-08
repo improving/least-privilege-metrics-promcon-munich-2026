@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: promql-gate, namespace: promql-gate}
+---
+# Lets the gate call TokenReview to verify tenant ServiceAccount tokens.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: promql-gate-auth-delegator}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: system:auth-delegator}
+subjects: [{kind: ServiceAccount, name: promql-gate, namespace: promql-gate}]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: gate-tenants, namespace: promql-gate}
+data:
+  tenants.yaml: |
+    # identity -> tenant, plus the stateful per-minute query budget.
+    # What each tenant may *query* lives in the Kyverno policies, not here.
+    tenants:
+      team-a:
+        subjects: ["system:serviceaccount:team-a:metrics-reader"]
+        samples_per_minute: 5000000
+      team-b:
+        subjects: ["system:serviceaccount:team-b:metrics-reader"]
+        samples_per_minute: 60000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: promql-gate, namespace: promql-gate}
+spec:
+  replicas: 1   # the token bucket is in-memory; see TALK-NOTES "where it breaks down"
+  selector: {matchLabels: {app: promql-gate}}
+  template:
+    metadata: {labels: {app: promql-gate}}
+    spec:
+      serviceAccountName: promql-gate
+      containers:
+      - name: gate
+        image: promql-gate:dev
+        imagePullPolicy: IfNotPresent
+        env:
+        - {name: PROMETHEUS_URL, value: "http://prometheus.monitoring.svc:9090"}
+        - {name: UPSTREAM_URL, value: "http://prom-label-proxy.promql-gate.svc:8080"}
+        - {name: POLICY_DIR, value: /policies}
+        - {name: TENANTS_FILE, value: /config/tenants.yaml}
+        ports: [{containerPort: 8080}]
+        readinessProbe: {httpGet: {path: /healthz, port: 8080}}
+        volumeMounts:
+        - {name: policies, mountPath: /policies}
+        - {name: tenants, mountPath: /config}
+      volumes:
+      - name: policies
+        configMap: {name: gate-policies}
+      - name: tenants
+        configMap: {name: gate-tenants}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: promql-gate, namespace: promql-gate}
+spec:
+  selector: {app: promql-gate}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+# The rewrite step. Trusts X-Tenant, which is why it must only be reachable from the gate.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: prom-label-proxy, namespace: promql-gate}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: prom-label-proxy}}
+  template:
+    metadata: {labels: {app: prom-label-proxy}}
+    spec:
+      containers:
+      - name: plp
+        image: quay.io/prometheuscommunity/prom-label-proxy:v0.15.1
+        args:
+        - -label=namespace
+        - -header-name=X-Tenant
+        - -upstream=http://prometheus.monitoring.svc:9090
+        - -insecure-listen-address=0.0.0.0:8080
+        - -enable-label-apis
+        - -error-on-replace
+        ports: [{containerPort: 8080}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: prom-label-proxy, namespace: promql-gate}
+spec:
+  selector: {app: prom-label-proxy}
+  ports: [{port: 8080, targetPort: 8080}]

@@ -1,0 +1,19 @@
+# Metrics that leak secrets, hostnames or cluster topology. Denied for every tenant.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: sensitive-metric-denylist
+spec:
+  evaluation:
+    mode: JSON
+  matchConditions:
+  - name: promql-only
+    expression: "object.kind == 'PromQLQuery'"
+  variables:
+  - name: denied
+    expression: "['kube_secret_', 'kube_configmap_', 'node_uname_info', 'kube_node_info']"
+  - name: hits
+    expression: "object.metrics.filter(m, variables.denied.exists(d, m.startsWith(d)))"
+  validations:
+  - expression: "size(variables.hits) == 0"
+    messageExpression: "'sensitive metrics are never exposed to tenants: ' + variables.hits.join(', ')"

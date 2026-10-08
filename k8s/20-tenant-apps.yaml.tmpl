@@ -1,0 +1,45 @@
+# Rendered per tenant by setup.sh: ${TENANT}, ${CUSTOMERS}, ${SECRET_NAME}
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: fake-shop, namespace: ${TENANT}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: fake-shop}}
+  template:
+    metadata:
+      labels: {app: fake-shop}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8000"}
+    spec:
+      containers:
+      - name: shop
+        image: python:3.12-alpine
+        command: [python3, /app/fake_shop.py]
+        env: [{name: CUSTOMERS, value: "${CUSTOMERS}"}]
+        ports: [{containerPort: 8000}]
+        volumeMounts: [{name: code, mountPath: /app}]
+      volumes:
+      - name: code
+        configMap: {name: fake-shop-code}
+---
+# Just has to exist: kube_secret_info will happily advertise its name to everyone.
+apiVersion: v1
+kind: Secret
+metadata: {name: ${SECRET_NAME}, namespace: ${TENANT}}
+stringData: {value: not-a-real-secret}
+---
+# The identity the tenant queries with. The gate maps it to a tenant via TokenReview.
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: metrics-reader, namespace: ${TENANT}}
+---
+# A shell inside the tenant's namespace, used to show what happens when someone
+# tries to walk around the gate and talk to Prometheus directly.
+apiVersion: v1
+kind: Pod
+metadata: {name: toolbox, namespace: ${TENANT}, labels: {app: toolbox}}
+spec:
+  serviceAccountName: metrics-reader
+  containers:
+  - name: curl
+    image: curlimages/curl:8.16.0
+    command: [sleep, infinity]

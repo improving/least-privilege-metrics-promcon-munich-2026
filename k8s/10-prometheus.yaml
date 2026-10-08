@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: prometheus, namespace: monitoring}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: prometheus-sd}
+rules:
+- apiGroups: [""]
+  resources: [pods, services, endpoints, nodes]
+  verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: prometheus-sd}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: prometheus-sd}
+subjects: [{kind: ServiceAccount, name: prometheus, namespace: monitoring}]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: prometheus-config, namespace: monitoring}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      # Every query Prometheus executes, *after* the gate and prom-label-proxy.
+      # This is the proof on stage that queries were rewritten.
+      query_log_file: /prometheus/query.log
+    scrape_configs:
+    - job_name: tenant-apps
+      kubernetes_sd_configs: [{role: pod}]
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: "true"
+      - source_labels: [__meta_kubernetes_pod_ip, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        regex: (.+);(.+)
+        replacement: $1:$2
+        target_label: __address__
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace     # the tenant boundary label
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+    - job_name: kube-state-metrics
+      honor_labels: true            # keep KSM's own namespace label (the object's namespace)
+      static_configs:
+      - targets: [kube-state-metrics.monitoring.svc:8080]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: prometheus, namespace: monitoring}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: prometheus}}
+  template:
+    metadata: {labels: {app: prometheus}}
+    spec:
+      serviceAccountName: prometheus
+      containers:
+      - name: prometheus
+        image: quay.io/prometheus/prometheus:v3.15.0
+        args:
+        - --config.file=/etc/prometheus/prometheus.yml
+        - --storage.tsdb.path=/prometheus
+        - --storage.tsdb.retention.time=2d
+        ports: [{containerPort: 9090}]
+        readinessProbe: {httpGet: {path: /-/ready, port: 9090}}
+        volumeMounts:
+        - {name: config, mountPath: /etc/prometheus}
+        - {name: data, mountPath: /prometheus}
+      volumes:
+      - name: config
+        configMap: {name: prometheus-config}
+      - name: data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: prometheus, namespace: monitoring}
+spec:
+  selector: {app: prometheus}
+  ports: [{port: 9090, targetPort: 9090}]

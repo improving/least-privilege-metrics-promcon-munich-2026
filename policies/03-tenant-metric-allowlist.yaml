@@ -1,0 +1,26 @@
+# Least privilege: each tenant gets an explicit list of metric prefixes.
+# Unknown tenants get nothing.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: tenant-metric-allowlist
+spec:
+  evaluation:
+    mode: JSON
+  matchConditions:
+  - name: promql-only
+    expression: "object.kind == 'PromQLQuery'"
+  variables:
+  - name: allow
+    expression: >-
+      {
+        "team-a": ["up", "http_requests_total", "checkout_", "kube_pod_", "kube_deployment_"],
+        "team-b": ["up", "http_requests_total"]
+      }
+  - name: mine
+    expression: "object.tenant in variables.allow ? variables.allow[object.tenant] : []"
+  - name: notAllowed
+    expression: "object.metrics.filter(m, !variables.mine.exists(p, m == p || (p.endsWith('_') && m.startsWith(p))))"
+  validations:
+  - expression: "size(variables.notAllowed) == 0"
+    messageExpression: "'tenant ' + object.tenant + ' is not entitled to: ' + variables.notAllowed.join(', ')"
