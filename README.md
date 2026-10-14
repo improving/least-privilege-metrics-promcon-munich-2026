@@ -93,5 +93,4 @@ TALK-NOTES.md  what to say per scene + where the model breaks down
 
 Prometheus v3.15.0, prom-label-proxy v0.15.1, Kyverno CLI v1.19.1, Python 3.12.
 
-**This is a demo, not a product.** See "Where it breaks down" in `TALK-NOTES.md` before
-borrowing any of it.
+**This is a demo, not a product.**
